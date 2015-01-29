@@ -449,7 +449,7 @@
           stylesheet = parse(stylesheet);
           // Get index of current item to be removed based on href
           var index = $rootScope.stylesheets.indexOf($filter('filter')($rootScope.stylesheets, {
-            href: stylesheet.href
+            href: stylesheet.href || stylesheet
           })[0]);
           // Remove stylesheet from scope (if found)
           if (index !== -1) {
@@ -457,7 +457,7 @@
           }
           // Remove stylesheet via media query
           removeViaMediaQuery(stylesheet);
-          $log.debug('$css.remove(): ' + stylesheet.href);
+          $log.debug('$css.remove(): ' + stylesheet.href || stylesheet);
         });
         // Broadcasts custom event for css remove
         $rootScope.$broadcast('$cssRemove', stylesheets, $rootScope.stylesheets);
