@@ -6,6 +6,8 @@
  * @license MIT License, http://www.opensource.org/licenses/MIT
  */
 
+/* global angular*/
+
 'use strict';
 
 (function (angular) {
@@ -35,8 +37,8 @@
       weight: 0
     };
 
-    this.$get = ['$rootScope','$injector','$window','$timeout','$compile','$http','$filter','$log',
-                function $get($rootScope, $injector, $window, $timeout, $compile, $http, $filter, $log) {
+    this.$get = ['$rootScope','$exceptionHandler','$injector','$window','$timeout','$compile','$http','$filter','$log',
+                function $get($rootScope, $exceptionHandler, $injector, $window, $timeout, $compile, $http, $filter, $log) {
 
       var $css = {};
 
@@ -54,6 +56,35 @@
       });
 
       /**
+       * Listen for route dependencies as resolved in order to add stylesheet(s)
+       **/
+      function $resolveListener(type, current, prev) {
+        // Check resolve object in current route
+        if (current) {
+          if (typeof current.resolve === 'object') {
+            $rootScope.$on(type+'ChangeSuccess', function (event, current, prev) {
+              $css.add($css.getFromRoute(current));
+              // Removes previously added css rules
+              if (prev) {
+                $css.remove($css.getFromRoute(prev));
+              }
+            });
+
+            $rootScope.$on(type+'ChangeError', function (event, current) {
+              var errorPath = current.$$route.originalPath.replace(/(\s)/g,'');
+              $exceptionHandler(event.name + ' on route:' + ' \'' + errorPath + '\'');
+            });
+          } else {
+            // Removes previously added css rules
+            if (prev) {
+              $css.remove($css.getFromRoute(prev));
+            }
+            $css.add($css.getFromRoute(current));
+          }
+        }
+      }
+
+      /**
        * Listen for directive add event in order to add stylesheet(s)
        **/
       function $directiveAddEventListener(event, directive, scope) {
@@ -67,28 +98,16 @@
        * Listen for route change event and add/remove stylesheet(s)
        **/
       function $routeEventListener(event, current, prev) {
-        // Removes previously added css rules
-        if (prev) {
-          $css.remove($css.getFromRoute(prev));
-        }
         // Adds current css rules
-        if (current) {
-          $css.add($css.getFromRoute(current));
-        }
+        $resolveListener('$route', current, prev);
       }
 
       /**
        * Listen for state change event and add/remove stylesheet(s)
        **/
       function $stateEventListener(event, current, params, prev) {
-        // Removes previously added css rules
-        if (prev) {
-          $css.remove($css.getFromState(prev));
-        }
         // Adds current css rules
-        if (current) {
-          $css.add($css.getFromState(current));
-        }
+        $resolveListener('$state', current, prev);
       }
 
       /**
