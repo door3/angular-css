@@ -1,6 +1,6 @@
 /**
  * AngularCSS - CSS on-demand for AngularJS
- * @version v1.0.6
+ * @version v1.0.7
  * @author DOOR3, Alex Castillo
  * @link http://door3.github.io/angular-css
  * @license MIT License, http://www.opensource.org/licenses/MIT
@@ -35,8 +35,8 @@
       weight: 0
     };
 
-    this.$get = ['$rootScope','$injector','$window','$timeout','$compile','$http','$filter','$log',
-                function $get($rootScope, $injector, $window, $timeout, $compile, $http, $filter, $log) {
+    this.$get = ['$rootScope','$injector','$q','$window','$timeout','$compile','$http','$filter','$log',
+                function $get($rootScope, $injector, $q, $window, $timeout, $compile, $http, $filter, $log) {
 
       var $css = {};
 
@@ -44,7 +44,8 @@
 
       // Variables - default options that can be overridden from application config
       var mediaQuery = {}, mediaQueryListener = {}, mediaQueriesToIgnore = ['print'], options = angular.extend({}, defaults),
-        container = angular.element(document.querySelector ? document.querySelector(options.container) : document.getElementsByTagName(options.container)[0]);
+        container = angular.element(document.querySelector ? document.querySelector(options.container) : document.getElementsByTagName(options.container)[0]),
+        dynamicPaths = [];
 
       // Parse all directives
       angular.forEach($directives, function (directive, key) {
@@ -69,7 +70,9 @@
       function $routeEventListener(event, current, prev) {
         // Removes previously added css rules
         if (prev) {
-          $css.remove($css.getFromRoute(prev));
+          $css.remove($css.getFromRoute(prev).concat(dynamicPaths));
+          // Reset dynamic paths array
+          dynamicPaths.length = 0;
         }
         // Adds current css rules
         if (current) {
@@ -83,7 +86,9 @@
       function $stateEventListener(event, current, params, prev) {
         // Removes previously added css rules
         if (prev) {
-          $css.remove($css.getFromState(prev));
+          $css.remove($css.getFromState(prev).concat(dynamicPaths));
+          // Reset dynamic paths array
+          dynamicPaths.length = 0;
         }
         // Adds current css rules
         if (current) {
@@ -92,11 +97,27 @@
       }
 
       /**
+       * Map breakpoitns defined in defaults to stylesheet media attribute
+       **/
+      function mapBreakpointToMedia(stylesheet) {
+        if (angular.isDefined(options.breakpoints)) {
+          if (stylesheet.breakpoint in options.breakpoints) {
+            stylesheet.media = options.breakpoints[stylesheet.breakpoint];
+          }
+          delete stylesheet.breakpoints;
+        } 
+      }
+
+      /**
        * Parse: returns array with full all object based on defaults
        **/
       function parse(obj) {
         if (!obj) {
           return;
+        }
+        // Function syntax
+        if (angular.isFunction(obj)) {
+          obj = angular.copy($injector.invoke(obj));
         }
         // String syntax
         if (angular.isString(obj)) {
@@ -122,6 +143,8 @@
             obj = angular.extend(item, options);
           });
         }
+        // Map breakpoint to media attribute
+        mapBreakpointToMedia(obj);
         return obj;
       }
 
@@ -135,10 +158,10 @@
       $rootScope.$on('$directiveAdd', $directiveAddEventListener);
 
       // Routes event listener ($route required)
-      $rootScope.$on('$routeChangeStart', $routeEventListener);
+      $rootScope.$on('$routeChangeSuccess', $routeEventListener);
 
       // States event listener ($state required)
-      $rootScope.$on('$stateChangeStart', $stateEventListener);
+      $rootScope.$on('$stateChangeSuccess', $stateEventListener);
 
       /**
        * Bust Cache
@@ -249,10 +272,16 @@
         if (css) {
           if (angular.isArray(css)) {
             angular.forEach(css, function (cssItem) {
+              if (angular.isFunction(cssItem)) {
+                dynamicPaths.push(parse(cssItem));
+              }
               result.push(parse(cssItem));
             });
           } else {
-          result.push(parse(css));
+            if (angular.isFunction(css)) {
+              dynamicPaths.push(parse(css));
+            }
+            result.push(parse(css));
           }
         }
         return result;
@@ -288,6 +317,9 @@
         if (angular.isDefined(state.views)) {
           angular.forEach(state.views, function (item) {
             if (item.css) {
+              if (angular.isFunction(item.css)) {
+                dynamicPaths.push(parse(item.css));
+              }
               result.push(parse(item.css));
             }
           });
@@ -296,11 +328,17 @@
         if (angular.isDefined(state.children)) {
           angular.forEach(state.children, function (child) {
             if (child.css) {
+              if (angular.isFunction(child.css)) {
+                dynamicPaths.push(parse(child.css));
+              }
               result.push(parse(child.css));
             }
             if (angular.isDefined(child.children)) {
               angular.forEach(child.children, function (childChild) {
                 if (childChild.css) {
+                  if (angular.isFunction(childChild.css)) {
+                    dynamicPaths.push(parse(childChild.css));
+                  }
                   result.push(parse(childChild.css));
                 }
               });
@@ -312,10 +350,16 @@
           // For multiple stylesheets
           if (angular.isArray(state.css)) {
               angular.forEach(state.css, function (itemCss) {
+                if (angular.isFunction(itemCss)) {
+                  dynamicPaths.push(parse(itemCss));
+                }
                 result.push(parse(itemCss));
               });
             // For single stylesheets
           } else {
+            if (angular.isFunction(state.css)) {
+              dynamicPaths.push(parse(state.css));
+            }
             result.push(parse(state.css));
           }
         }
@@ -363,21 +407,26 @@
           if ($injector.has('$state')) {
             Array.prototype.push.apply(stylesheets, $css.getFromStates($injector.get('$state').get()));
           }
+          stylesheets = filterBy(stylesheets, 'preload');
         }
-        stylesheets = filterBy(stylesheets, 'preload');
-        angular.forEach(stylesheets, function(stylesheet, index) {
-          // Preload via ajax request
-          $http.get(stylesheet.href)
-            .success(function (response) {
-              $log.debug('preload response: ' + response);
-              if (stylesheets.length === (index + 1) && angular.isFunction(callback)) {
-                callback(stylesheets);
-              }
+        if (!angular.isArray(stylesheets)) {
+          stylesheets = [stylesheets];
+        }
+        var stylesheetLoadPromises = [];
+        angular.forEach(stylesheets, function(stylesheet, key) {
+          stylesheet = stylesheets[key] = parse(stylesheet);
+          stylesheetLoadPromises.push(
+            // Preload via ajax request
+            $http.get(stylesheet.href).error(function (response) {
+              $log.error('AngularCSS: Incorrect path for ' + stylesheet.href);
             })
-            .error(function (response) {
-              $log.error('Incorrect path for ' + stylesheet.href);
-            });
+          );
         });
+        if (angular.isFunction(callback)) {
+          $q.all(stylesheetLoadPromises).then(function () {
+            callback(stylesheets);
+          });
+        }
       };
 
       /**

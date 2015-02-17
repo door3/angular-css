@@ -222,19 +222,57 @@ AngularCSS supports "smart media queries". This means that stylesheets with medi
 This will significantly optimize the load time of your apps.
 
 ```js
-css: [
-  {
-    href: 'my-page/my-page.mobile.css',
-    media: 'screen and (max-width: 480px)'
-  }, {
-    href: 'my-page/my-page.tablet.css',
-    media: 'screen and (min-width: 768px) and (max-width: 1024px)'
-  }, {
-    href: 'my-page/my-page.desktop.css',
-    media: 'screen and (min-width: 1224px)'
-  }
-]
+$routeProvider
+  .when('/my-page', {
+    templateUrl: 'my-page/my-page.html',
+    css: [
+      {
+        href: 'my-page/my-page.mobile.css',
+        media: '(max-width: 480px)'
+      }, {
+        href: 'my-page/my-page.tablet.css',
+        media: '(min-width: 768px) and (max-width: 1024px)'
+      }, {
+        href: 'my-page/my-page.desktop.css',
+        media: '(min-width: 1224px)'
+      }
+    ]
+  });
 ```
+
+Even though you can use the `media` property to specify media queries, the best way to manage your breakpoins is by settings them in the provider's defaults. For example:
+
+```js
+myApp.config(function($routeProvider, $cssProvider) {
+
+  angular.extend($cssProvider.defaults, {
+    breakpoints: {
+      mobile: '(max-width: 480px)',
+      tablet: '(min-width: 768px) and (max-width: 1024px)',
+      desktop: '(min-width: 1224px)'
+    }
+  });
+
+  $routeProvider
+    .when('/my-page', {
+      templateUrl: 'my-page/my-page.html',
+      css: [
+        {
+          href: 'my-page/my-page.mobile.css',
+          breakpoint: 'mobile'
+        }, {
+          href: 'my-page/my-page.tablet.css',
+          breakpoint: 'tablet'
+        }, {
+          href: 'my-page/my-page.desktop.css',
+          breakpoint: 'desktop'
+        }
+      ]
+    });
+
+});
+```
+
 
 ### Config
 
