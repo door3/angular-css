@@ -39,8 +39,9 @@
                 function $get($rootScope, $injector, $q, $window, $timeout, $compile, $http, $filter, $log) {
 
       var $css = {};
-
-      var template = '<link ng-repeat="stylesheet in stylesheets track by $index | orderBy: \'weight\' " rel="{{ stylesheet.rel }}" type="{{ stylesheet.type }}" ng-href="{{ stylesheet.href }}" ng-attr-media="{{ stylesheet.media }}">';
+      var template = '<link ng-repeat="stylesheet in stylesheets track by $index | orderBy: \'weight\' " ng-if="!stylesheet.scope" preload="{{stylesheet.preload}}" rel="{{ stylesheet.rel }}" type="{{ stylesheet.type }}" ng-href="{{ stylesheet.href }}" ng-attr-media="{{ stylesheet.media }}">';
+      
+      var preloadCount = 0;
 
       // Variables - default options that can be overridden from application config
       var mediaQuery = {}, mediaQueryListener = {}, mediaQueriesToIgnore = ['print'], options = angular.extend({}, defaults),
@@ -51,6 +52,7 @@
       angular.forEach($directives, function (directive, key) {
         if (directive.hasOwnProperty('css')) {
           $directives[key] = parse(directive.css);
+          if (directive.css.preload) preloadCount++;
         }
       });
 
@@ -255,6 +257,90 @@
       }
 
       /**
+       * beautifyCSS()
+       *
+       * @param {String} css 
+       * @param {Function} callback
+       * @description Beautify CSS string so it is easier to parse
+       */
+      function beautifyCSS(css, callback) {
+        var beautifiedCSS = css
+           .split('\t').join('  ')
+           .replace(/\s*{\s*/g, ' {\n  ')
+           .replace(/;\s*/g, ';\n    ')
+           .replace(/,\s*/g, ', ')
+           .replace(/[ ]*}\s*/g, '}\n')
+           .replace(/\}\s*(.+)/g, '}\n$1')
+           .replace(/\n    ([^:]+):\s*/g, '\n    $1: ')
+           .replace(/([A-z0-9\)])}/g, '$1;\n}'); // accounting for omitting a semi-colon on last declaration
+
+        beautifiedCSS = beautifiedCSS.trim();
+        if (angular.isFunction(callback)) callback(beautifiedCSS);
+        return beautifiedCSS;
+      }
+
+      /**
+       * removeComments()
+       *
+       * @param {String} css 
+       * @returns {String}
+       * @description remove comments from CSS string
+       */
+      function removeComments(css) {
+        return css.replace(/\/\*[^*]*\*+([^/*][^*]*\*+)*\//g, '');
+      }
+
+      /**
+       * parseAndIsolate()
+       *
+       * @param {String} css
+       * @param {Object} stylesheet
+       * @returns {String} 
+       * @description parses and isolates selectors according to directives stylesheet.scope identifier 
+       */
+      function parseAndIsolate(css, stylesheet) {
+        var isolatedOutput = '',
+            keyframesRE = /^\s*(from|to)\s*{$/g,
+            isolateRE = new RegExp('^' + stylesheet.scope, 'g');
+
+        css.split('\n').forEach(function parse(line, indx, arr) {
+
+          // any selector starting with @ or keyframes
+          if (/^@/.test(line.trim()) || keyframesRE.test(line.trim())) {
+            isolatedOutput += line;
+          }
+
+          // multiple selectors
+          else if (line.indexOf('{') > -1 && line.indexOf(',')) {
+            isolatedOutput += splitSelectors(line);
+          }
+
+          // e.g. my-directive.myClass TO .my-directive.myClass
+          else if (isolateRE.test(line.trim())) {
+            isolatedOutput += '.' + line;
+          }
+
+          else isolatedOutput += line;
+        });
+
+        function splitSelectors(line) {
+          var suffix, selectorStr = '';
+          line.split(',').forEach(function(selector, indx, arr) {
+            suffix = (indx === arr.length-1) ? '' : ', ';
+            selector = selector.trim();
+            selectorStr += ((isolateRE.test(selector)) ? '.' + selector : '.' + stylesheet.scope + ' ' + selector) + suffix;
+          });
+          return selectorStr;
+        }
+        return isolatedOutput;
+      }
+
+      // Public API for testing & demoing
+      $css.beautifyCSS     = beautifyCSS;
+      $css.removeComments  = removeComments;
+      $css.parseAndIsolate = parseAndIsolate;
+
+      /**
        * Get From Route: returns array of css objects from single route
        **/
       $css.getFromRoute = function (route) {
@@ -412,12 +498,28 @@
         if (!angular.isArray(stylesheets)) {
           stylesheets = [stylesheets];
         }
+
+        $log.debug("Preloading Stylesheets", stylesheets);
+
         var stylesheetLoadPromises = [];
         angular.forEach(stylesheets, function(stylesheet, key) {
           stylesheet = stylesheets[key] = parse(stylesheet);
           stylesheetLoadPromises.push(
             // Preload via ajax request
-            $http.get(stylesheet.href).error(function (response) {
+            $http.get(stylesheet.href).success(function(response) {
+              if (!stylesheet.scope) return;
+
+              $log.debug("Isolating Stylesheet Scope for...", stylesheet)
+
+              /** Isolating CSS Parser Here **/
+
+              // Beautify
+              beautifyCSS(removeComments(response), function(css) {
+                // Parse and Add to head
+                container.append('<style>' + parseAndIsolate(css, stylesheet) + '</style>');
+              });
+
+            }).error(function (response) {
               $log.error('AngularCSS: Incorrect path for ' + stylesheet.href);
             })
           );
@@ -432,7 +534,7 @@
       /**
        * Bind: binds css in scope with own scope create/destroy events
        **/
-       $css.bind = function (css, $scope) {
+      $css.bind = function (css, $scope) {
         if (!css || !$scope) {
           return $log.error('No scope or stylesheets provided');
         }
@@ -451,7 +553,7 @@
           $css.remove(result);
           $log.debug('$css.bind(): Removed', result);
         });
-       };
+      };
 
       /**
        * Add: adds stylesheets to scope
@@ -526,14 +628,21 @@
         $log.debug('all stylesheets removed');
       };
 
-      // Preload all stylesheets
-      $css.preload();
+      // Preload all stylesheets when $rootScope.stylesheets is ready
+      $rootScope.$on('$cssAdd', function preloader() {
+        preloader.loaded = preloader.loaded || false;
+        if ($rootScope.stylesheets.length === preloadCount && !preloader.loaded) {
+          $css.preload(); 
+          preloader.loaded = true;
+        }
+      });
 
       return $css;
 
     }];
 
   }]);
+
 
   /**
    * Links filter - renders the stylesheets array in html format
@@ -545,6 +654,7 @@
       }
       var result = '';
       angular.forEach(stylesheets, function (stylesheet) {
+        if (stylesheet.scope) return; // isolate scoped stylsheets don't get added to the head
         result += '<link rel="' + stylesheet.rel + '" type="' + stylesheet.type + '" href="' + stylesheet.href + '"';
         result += (stylesheet.media ? ' media="' + stylesheet.media + '"' : '')
         result += '>\n\n';
@@ -568,12 +678,17 @@
     var module = originalModule.apply(this, arguments);
     var originalDirective = module.directive;
     module.directive = function(directiveName, directiveFactory) {
-      var originalDirectiveFactory = angular.isFunction(directiveFactory) ?
-      directiveFactory : directiveFactory[directiveFactory.length - 1];
+      var originalDirectiveFactory = angular.isFunction(directiveFactory) ? directiveFactory : directiveFactory[directiveFactory.length - 1];
       try {
         var directive = angular.copy(originalDirectiveFactory)();
         directive.directiveName = directiveName;
         if (directive.hasOwnProperty('css')) {
+          // Preload isolate scope stylesheets
+          if (directive.css.scope) {
+            directive.css.preload = true;
+            // Reassign scope boolean to directive name
+            directive.css.scope = directive.directiveName.replace(/([A-Z])/g, function($1) {return "-" + $1.toLowerCase()});
+          }
           $directives.push(directive);
         }
       } catch (e) { }
@@ -590,8 +705,12 @@
               $directive.css = directive.css;
             }
             directive.compile = function() {
-              var link = compile ? compile.apply(this, arguments): false;
-              return function(scope) {
+              var link = compile ? compile.apply(this, arguments) : false;
+              return function(scope, element) {
+                if (directive.css && directive.css.scope) {
+                  element.addClass(directive.name.replace(/([A-Z])/g, function($1) {return "-" + $1.toLowerCase()}));
+                }
+
                 var linkArgs = arguments;
                 $timeout(function () {
                   if (link) {
