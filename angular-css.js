@@ -14,6 +14,7 @@
    * AngularCSS Module
    * Contains: config, constant, provider and run
    **/
+   /*global angular*/
   var angularCSS = angular.module('door3.css', []);
 
   // Config
@@ -39,6 +40,14 @@
                 function $get($rootScope, $injector, $q, $window, $timeout, $compile, $http, $filter, $log) {
 
       var $css = {};
+      var currentStack = {
+        routes: [],
+        states: []
+      };
+      var uiResolved;
+      var uiRouterPromise;
+
+
 
       var template = '<link ng-repeat="stylesheet in stylesheets track by $index | orderBy: \'weight\' " rel="{{ stylesheet.rel }}" type="{{ stylesheet.type }}" ng-href="{{ stylesheet.href }}" ng-attr-media="{{ stylesheet.media }}">';
 
@@ -54,6 +63,88 @@
         }
       });
 
+      // Apply Css on Change
+      function _applyCssStateOnChange (event, current, params, prev) {
+        // Removes previously added css rules
+        if (prev) {
+          $css.remove($css.getFromState(prev).concat(dynamicPaths));
+          // Reset dynamic paths array
+          dynamicPaths.length = 0;
+        }
+        uiResolved.$$promises._door3CssState.then(function () {
+          currentStack.states.forEach(function (cssItem) {
+            $css.add(cssItem);
+          });
+        });
+      }
+
+      // Apply Css on Change
+      function _applyCssRouteOnChange (event, current, prev) {
+        // Removes previously added css rules
+        if (prev) {
+          $css.remove($css.getFromRoute(prev).concat(dynamicPaths));
+          // Reset dynamic paths array
+          dynamicPaths.length = 0;
+        }
+        currentStack.routes.forEach(function (cssItem) {
+          console.log(cssItem);
+          $css.add(cssItem);
+        });
+      }
+
+      // Inject and resolve css added to routes/states
+      function _resolveStatePromises (current, prev, resolveProp, params) {
+        console.log(current.resolve);
+        var
+          uiResolve,
+          currentRoute = $css.getFromState(current, 'resolve');
+          uiResolve = $injector.get('$resolve');
+        if (prev) {
+          if (current) {
+            // resolve to ui.router
+            currentStack.states = [];
+            uiRouterPromise = function () {
+                var defer = $q.defer();
+                $css.preload(currentRoute, function () {
+                  currentStack.states.push(currentRoute);
+                }, 'resolve', defer, current.url);
+                return defer.promise;
+            };
+            uiResolved = uiResolve.resolve({
+              _door3CssState: uiRouterPromise
+            });
+          }
+        } else {
+          currentStack.states.push(currentRoute);
+        }
+      }
+
+      // Inject and resolve css added to routes/states
+      function _resolveRoutePromises (current, prev, resolveProp) {
+        var
+          ngResolve,
+          currentRoute = $css.getFromRoute(current, 'resolve');
+          ngResolve = current.$$route;
+        if (prev) {
+          if (current) {
+            // resolve to ngRoute
+            if (!ngResolve.resolve) {
+              ngResolve.resolve = {};
+            }
+            currentStack.routes = [];
+            ngResolve.resolve[resolveProp] = function () {
+              var defer = $q.defer();
+              $css.preload(currentRoute, function () {
+                currentStack.routes.push(currentRoute);
+              }, 'resolve', defer, ngResolve.originalPath);
+              return defer.promise;
+            };
+          }
+        } else {
+            currentStack.routes.push(currentRoute);
+        }
+      }
+
       /**
        * Listen for directive add event in order to add stylesheet(s)
        **/
@@ -68,15 +159,10 @@
        * Listen for route change event and add/remove stylesheet(s)
        **/
       function $routeEventListener(event, current, prev) {
-        // Removes previously added css rules
-        if (prev) {
-          $css.remove($css.getFromRoute(prev).concat(dynamicPaths));
-          // Reset dynamic paths array
-          dynamicPaths.length = 0;
-        }
-        // Adds current css rules
+        // Adds current css rules and queued to resolve
         if (current) {
-          $css.add($css.getFromRoute(current));
+          // Adds to resolve
+          _resolveRoutePromises(current, prev, '_door3CssRoute');
         }
       }
 
@@ -84,15 +170,9 @@
        * Listen for state change event and add/remove stylesheet(s)
        **/
       function $stateEventListener(event, current, params, prev) {
-        // Removes previously added css rules
-        if (prev) {
-          $css.remove($css.getFromState(prev).concat(dynamicPaths));
-          // Reset dynamic paths array
-          dynamicPaths.length = 0;
-        }
-        // Adds current css rules
+        // Adds current css rules and queued to resolve
         if (current) {
-          $css.add($css.getFromState(current));
+          _resolveStatePromises(current, prev, '_door3CssState', params);
         }
       }
 
@@ -105,7 +185,7 @@
             stylesheet.media = options.breakpoints[stylesheet.breakpoint];
           }
           delete stylesheet.breakpoints;
-        } 
+        }
       }
 
       /**
@@ -158,12 +238,17 @@
       $rootScope.$on('$directiveAdd', $directiveAddEventListener);
 
       // Routes event listener ($route required)
-      $rootScope.$on('$routeChangeSuccess', $routeEventListener);
+      $rootScope.$on('$routeChangeStart', $routeEventListener);
 
       // States event listener ($state required)
-      $rootScope.$on('$stateChangeSuccess', $stateEventListener);
+      $rootScope.$on('$stateChangeStart', $stateEventListener);
 
-      /**
+      // Routes event listener ($route required)
+      $rootScope.$on('$routeChangeSuccess', _applyCssRouteOnChange);
+
+      // States event listener ($route required)
+      $rootScope.$on('$stateChangeSuccess', _applyCssStateOnChange);
+       /**
        * Bust Cache
        **/
       function bustCache(stylesheet) {
@@ -257,7 +342,8 @@
       /**
        * Get From Route: returns array of css objects from single route
        **/
-      $css.getFromRoute = function (route) {
+      $css.getFromRoute = function (route, condition) {
+        var cssItem;
         if (!route) {
           return $log.error('Get From Route: No route provided');
         }
@@ -272,16 +358,24 @@
         if (css) {
           if (angular.isArray(css)) {
             angular.forEach(css, function (cssItem) {
+              cssItem = parse(cssItem);
               if (angular.isFunction(cssItem)) {
-                dynamicPaths.push(parse(cssItem));
+                dynamicPaths.push(cssItem);
               }
-              result.push(parse(cssItem));
+              if (condition) {
+                cssItem.resolve = true;
+              }
+              result.push(cssItem);
             });
           } else {
+            cssItem = parse(css);
             if (angular.isFunction(css)) {
-              dynamicPaths.push(parse(css));
+              dynamicPaths.push(cssItem);
             }
-            result.push(parse(css));
+            if (condition) {
+              cssItem.resolve = true;
+            }
+            result.push(cssItem);
           }
         }
         return result;
@@ -308,7 +402,8 @@
       /**
        * Get From State: returns array of css objects from single state
        **/
-      $css.getFromState = function (state) {
+      $css.getFromState = function (state, condition) {
+        var cssItem;
         if (!state) {
           return $log.error('Get From State: No state provided');
         }
@@ -317,10 +412,14 @@
         if (angular.isDefined(state.views)) {
           angular.forEach(state.views, function (item) {
             if (item.css) {
+              cssItem = parse(item.css);
               if (angular.isFunction(item.css)) {
-                dynamicPaths.push(parse(item.css));
+                dynamicPaths.push(cssItem);
               }
-              result.push(parse(item.css));
+              if (condition) {
+                cssItem.resolve = true;
+              }
+              result.push(cssItem);
             }
           });
         }
@@ -328,18 +427,26 @@
         if (angular.isDefined(state.children)) {
           angular.forEach(state.children, function (child) {
             if (child.css) {
+              cssItem = parse(child.css);
               if (angular.isFunction(child.css)) {
-                dynamicPaths.push(parse(child.css));
+                dynamicPaths.push(cssItem);
+                if (condition) {
+                  cssItem.resolve = true;
+                }
               }
-              result.push(parse(child.css));
+              result.push(cssItem);
             }
             if (angular.isDefined(child.children)) {
               angular.forEach(child.children, function (childChild) {
                 if (childChild.css) {
+                  cssItem = parse(childChild.css);
                   if (angular.isFunction(childChild.css)) {
-                    dynamicPaths.push(parse(childChild.css));
+                    dynamicPaths.push(cssItem);
+                    if (condition) {
+                      cssItem.resolve = true;
+                    }
                   }
-                  result.push(parse(childChild.css));
+                  result.push(cssItem);
                 }
               });
             }
@@ -350,15 +457,25 @@
           // For multiple stylesheets
           if (angular.isArray(state.css)) {
               angular.forEach(state.css, function (itemCss) {
+                cssItem = parse(itemCss);
                 if (angular.isFunction(itemCss)) {
-                  dynamicPaths.push(parse(itemCss));
+                  dynamicPaths.push(cssItem);
+                  if (condition) {
+                    cssItem.resolve = true;
+                  }
                 }
-                result.push(parse(itemCss));
+                result.push(cssItem);
               });
             // For single stylesheets
           } else {
             if (angular.isFunction(state.css)) {
               dynamicPaths.push(parse(state.css));
+              if (condition) {
+                var stateCss = {
+                  href: state.css
+                };
+                angular.extend(stateCss, defaults);
+              }
             }
             result.push(parse(state.css));
           }
@@ -391,7 +508,13 @@
       /**
        * Preload: preloads css via http request
        **/
-      $css.preload = function (stylesheets, callback) {
+      $css.preload = function (stylesheets, callback, condition, defer, path) {
+        var promise;
+        if (condition === 'resolve') {
+          promise = true;
+        } else {
+          condition = 'preload';
+        }
         // If no stylesheets provided, then preload all
         if (!stylesheets) {
           stylesheets = [];
@@ -407,11 +530,11 @@
           if ($injector.has('$state')) {
             Array.prototype.push.apply(stylesheets, $css.getFromStates($injector.get('$state').get()));
           }
-          stylesheets = filterBy(stylesheets, 'preload');
         }
         if (!angular.isArray(stylesheets)) {
           stylesheets = [stylesheets];
         }
+        stylesheets = filterBy(stylesheets, condition);
         var stylesheetLoadPromises = [];
         angular.forEach(stylesheets, function(stylesheet, key) {
           stylesheet = stylesheets[key] = parse(stylesheet);
@@ -424,7 +547,17 @@
         });
         if (angular.isFunction(callback)) {
           $q.all(stylesheetLoadPromises).then(function () {
-            callback(stylesheets);
+            if (promise) {
+              defer.resolve(path || '');
+              callback(stylesheets);
+            } else {
+              callback(stylesheets);
+            }
+          }, function () {
+            if (promise) {
+              defer.reject();
+            }
+            $log.error('Promise array failed.');
           });
         }
       };
