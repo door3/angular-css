@@ -9,9 +9,9 @@
   "description": "CSS on-demand for AngularJS",
   "keywords": [
     "angularjs",
+    "css",
     "ng-route",
-    "ui-router",
-    "css"
+    "ui-router"
   ],
   "dependencies": {
     "angular": ">= 1.3.0"

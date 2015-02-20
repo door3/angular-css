@@ -1,9 +1,27 @@
 'use strict';
 
 module.exports = function(grunt) {
+    var npmTasks = [
+        'grunt-contrib-concat',
+        'grunt-contrib-uglify',
+        'grunt-karma'
+    ];
+
     grunt.initConfig({
         pkg: grunt.file.readJSON('package.json'),
-
+        concat: {
+            dist: {
+                src: [
+                    'src/prefix.js',
+                    'src/$css-provider.js',
+                    'src/$cssLinks-filter.js',
+                    'src/angularCSS-module.js',
+                    'src/angularHack.js',
+                    'src/suffix.js'
+                ],
+                dest: 'angular-css.js'
+            }
+        },
         karma: {
             unit: {
                 options: {
@@ -40,12 +58,14 @@ module.exports = function(grunt) {
         }
     });
 
-    grunt.loadNpmTasks('grunt-contrib-uglify');
-    grunt.loadNpmTasks('grunt-karma');
+    npmTasks.forEach(function (task) {
+        grunt.loadNpmTasks(task);
+    });
 
     grunt.registerTask('test', ['karma']);
 
     grunt.registerTask('default', [
+        'concat',
         'test',
         'uglify'
     ]);
