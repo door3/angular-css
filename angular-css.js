@@ -22,8 +22,7 @@ function $cssProvider() {
     weight: 0
   };
 
-  this.$get = ['$rootScope', '$injector', '$q', '$window', '$timeout', '$compile', '$http', '$filter', '$log',
-    function $get($rootScope, $injector, $q, $window, $timeout, $compile, $http, $filter, $log) {
+  this.$get = /** @ngInject */ ['$rootScope', '$injector', '$q', '$window', '$timeout', '$compile', '$http', '$filter', '$log', function $get($rootScope, $injector, $q, $window, $timeout, $compile, $http, $filter, $log) {
 
       var $css = {};
 
