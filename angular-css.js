@@ -105,7 +105,7 @@
             stylesheet.media = options.breakpoints[stylesheet.breakpoint];
           }
           delete stylesheet.breakpoints;
-        } 
+        }
       }
 
       /**
@@ -346,10 +346,14 @@
           });
         }
         // State default notation
-        if (angular.isDefined(state.css)) {
+        if (
+            angular.isDefined(state.css) ||
+            (angular.isDefined(state.data) && angular.isDefined(state.data.css))
+        ) {
+          var css = state.css || state.data.css;
           // For multiple stylesheets
-          if (angular.isArray(state.css)) {
-              angular.forEach(state.css, function (itemCss) {
+          if (angular.isArray(css)) {
+              angular.forEach(css, function (itemCss) {
                 if (angular.isFunction(itemCss)) {
                   dynamicPaths.push(parse(itemCss));
                 }
@@ -357,10 +361,10 @@
               });
             // For single stylesheets
           } else {
-            if (angular.isFunction(state.css)) {
-              dynamicPaths.push(parse(state.css));
+            if (angular.isFunction(css)) {
+              dynamicPaths.push(parse(css));
             }
-            result.push(parse(state.css));
+            result.push(parse(css));
           }
         }
         return result;
