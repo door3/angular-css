@@ -1,9 +1,14 @@
 'use strict';
 
 module.exports = function(grunt) {
+    var npmTasks = [
+        'grunt-contrib-uglify',
+        'grunt-karma',
+        'grunt-ng-annotate'
+    ];
+
     grunt.initConfig({
         pkg: grunt.file.readJSON('package.json'),
-
         karma: {
             unit: {
                 options: {
@@ -27,7 +32,23 @@ module.exports = function(grunt) {
                 singleRun: true
             }
         },
-
+        ngAnnotate: {
+            options: {
+                singleQuotes: true
+            },
+            angularCss: {
+                files: {
+                    'angular-css.js': [
+                        'src/prefix.js',
+                        'src/$css-provider.js',
+                        'src/$cssLinks-filter.js',
+                        'src/angularCSS-module.js',
+                        'src/angularHack.js',
+                        'src/suffix.js'
+                    ]
+                }
+            }
+        },
         uglify: {
             options: {
                 banner: '/*! <%= pkg.name %> <%= pkg.version %> | Copyright (c) <%= grunt.template.today("yyyy") %> DOOR3, Alex Castillo | MIT License */'
@@ -40,12 +61,14 @@ module.exports = function(grunt) {
         }
     });
 
-    grunt.loadNpmTasks('grunt-contrib-uglify');
-    grunt.loadNpmTasks('grunt-karma');
+    npmTasks.forEach(function (task) {
+        grunt.loadNpmTasks(task);
+    });
 
     grunt.registerTask('test', ['karma']);
 
     grunt.registerTask('default', [
+        'ngAnnotate',
         'test',
         'uglify'
     ]);
