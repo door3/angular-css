@@ -47,22 +47,13 @@
         container = angular.element(document.querySelector ? document.querySelector(options.container) : document.getElementsByTagName(options.container)[0]),
         dynamicPaths = [];
 
-      // Parse all directives
-      angular.forEach($directives, function (directive, key) {
-        if (directive.hasOwnProperty('css')) {
-          $directives[key] = parse(directive.css);
-        }
-      });
-
       /**
        * Listen for directive add event in order to add stylesheet(s)
        **/
       function $directiveAddEventListener(event, directive, scope) {
         // Binds directive's css
         if (scope && directive.hasOwnProperty('css')) {
-          angular.forEach(directive.css, function(css){
-            $css.bind(parse(css), scope);
-          });
+          $css.bind(parse(directive.css), scope);
         }
       }
 
@@ -117,9 +108,13 @@
         if (!obj) {
           return;
         }
-        // Function syntax
-        if (angular.isFunction(obj)) {
+        // Function syntax (or annotated functions)
+        if (angular.isFunction(obj) || angular.isArray(obj) && angular.isFunction(obj[obj.length-1])) {
           obj = angular.copy($injector.invoke(obj));
+
+          if(angular.isArray(obj)) {
+            return obj.map(parse);
+          }
         }
         // String syntax
         if (angular.isString(obj)) {
@@ -315,14 +310,29 @@
           return $log.error('Get From State: No state provided');
         }
         var result = [];
+
+        function collect(cssItem)
+        {
+          var parsedCssItem= parse(cssItem);
+
+          if(angular.isArray(parsedCssItem)) {
+            if (angular.isFunction(cssItem)) {
+              dynamicPaths.push.apply(dynamicPaths, parsedCssItem);
+            }
+            result.push.apply(result, parsedCssItem);
+          } else {
+            if (angular.isFunction(cssItem)) {
+              dynamicPaths.push(parsedCssItem);
+            }
+            result.push(parsedCssItem);
+          }
+        }
+
         // State "views" notation
         if (angular.isDefined(state.views)) {
           angular.forEach(state.views, function (item) {
             if (item.css) {
-              if (angular.isFunction(item.css)) {
-                dynamicPaths.push(parse(item.css));
-              }
-              result.push(parse(item.css));
+              collect(item.css);
             }
           });
         }
@@ -330,44 +340,30 @@
         if (angular.isDefined(state.children)) {
           angular.forEach(state.children, function (child) {
             if (child.css) {
-              if (angular.isFunction(child.css)) {
-                dynamicPaths.push(parse(child.css));
-              }
-              result.push(parse(child.css));
+              collect(child.css);
             }
             if (angular.isDefined(child.children)) {
               angular.forEach(child.children, function (childChild) {
                 if (childChild.css) {
-                  if (angular.isFunction(childChild.css)) {
-                    dynamicPaths.push(parse(childChild.css));
-                  }
-                  result.push(parse(childChild.css));
+                  collect(childChild.css);
                 }
               });
             }
           });
         }
-        // State default notation
-        if (
-            angular.isDefined(state.css) ||
-            (angular.isDefined(state.data) && angular.isDefined(state.data.css))
-        ) {
-          var css = state.css || state.data.css;
-          // For multiple stylesheets
-          if (angular.isArray(css)) {
-              angular.forEach(css, function (itemCss) {
-                if (angular.isFunction(itemCss)) {
-                  dynamicPaths.push(parse(itemCss));
-                }
-                result.push(parse(itemCss));
-              });
-            // For single stylesheets
-          } else {
-            if (angular.isFunction(css)) {
-              dynamicPaths.push(parse(css));
-            }
-            result.push(parse(css));
+        // State "parent" notation
+        if (angular.isDefined(state.parent)) {
+          var $state= $injector.get('$state');
+          var parent= $state.get(state.parent);
+
+          if(parent.css)
+          {
+            collect(parent.css);
           }
+        }
+        // State default notation
+        if (angular.isDefined(state.css) || (angular.isDefined(state.data) && angular.isDefined(state.data.css))) {
+          collect(state.css || state.data.css);
         }
         return result;
       };
@@ -568,11 +564,12 @@
    * AngularJS hack - This way we can get and decorate all custom directives
    * in order to broadcast a custom $directiveAdd event
    **/
-  var $directives = [];
+  var $directives = {};
   var originalModule = angular.module;
-  angular.module = function () {
+  angular.module = function (moduleName) {
     var module = originalModule.apply(this, arguments);
     var originalDirective = module.directive;
+
     module.directive = function(directiveName, directiveFactory) {
       var originalDirectiveFactory = angular.isFunction(directiveFactory) ?
       directiveFactory : directiveFactory[directiveFactory.length - 1];
@@ -580,40 +577,43 @@
         var directive = angular.copy(originalDirectiveFactory)();
         directive.directiveName = directiveName;
         if (directive.hasOwnProperty('css')) {
-          $directives.push(directive);
+          $directives[moduleName+':'+directiveName]= directive;
         }
       } catch (e) { }
       return originalDirective.apply(this, arguments);
     };
-    module.config(['$provide','$injector', function ($provide, $injector) {
-      angular.forEach($directives, function ($directive) {
-        var dirProvider = $directive.directiveName + 'Directive';
-        if ($injector.has(dirProvider)) {
-          $provide.decorator(dirProvider, ['$delegate', '$rootScope', '$timeout', function ($delegate, $rootScope, $timeout) {
-            var directive = $delegate[0];
-            var compile = directive.compile;
-            if (directive.css) {
-              $directive.css = directive.css;
-            }
-            directive.compile = function() {
-              var link = compile ? compile.apply(this, arguments): false;
-              return function(scope) {
-                var linkArgs = arguments;
-                $timeout(function () {
-                  if (link) {
-                    link.apply(this, linkArgs);
-                  }
-                });
-                $rootScope.$broadcast('$directiveAdd', directive, scope);
-              };
-            };
-            return $delegate;
-          }]);
-        }
-      });
-    }]);
+
     return module;
   };
+
+  angularCSS.config(['$provide','$injector', function ($provide, $injector) {
+    angular.forEach(Object.keys($directives), function (directiveKey) {
+      var $directive= $directives[directiveKey];
+      var dirProvider = $directive.directiveName + 'Directive';
+      if ($injector.has(dirProvider)) {
+        $provide.decorator(dirProvider, ['$delegate', '$rootScope', '$timeout', function ($delegate, $rootScope, $timeout) {
+          var directive = $delegate[0];
+          var compile = directive.compile;
+          if (directive.css) {
+            $directive.css = directive.css;
+          }
+          directive.compile = function() {
+            var link = compile ? compile.apply(this, arguments): false;
+            return function(scope) {
+              var linkArgs = arguments;
+              $timeout(function () {
+                if (link) {
+                  link.apply(this, linkArgs);
+                }
+              });
+              $rootScope.$broadcast('$directiveAdd', directive, scope);
+            };
+          };
+          return $delegate;
+        }]);
+      }
+    });
+  }]);
   /* End of hack */
 
 })(angular);
