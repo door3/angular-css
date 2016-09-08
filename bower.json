@@ -1,7 +1,7 @@
 {
   "name": "angular-css",
   "main": "./angular-css.js",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "homepage": "http://castillo-io.github.io/angular-css",
   "authors": [
     "Alex Castillo <alex@castillo.io>",
