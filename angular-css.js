@@ -428,7 +428,11 @@
           }
           // Add all stylesheets from ngRoute to array
           if ($injector.has('$route')) {
-            Array.prototype.push.apply(stylesheets, $css.getFromRoutes($injector.get('$route').routes));
+            var routeService = $injector.get('$route');
+            if (routeService) {
+              // fix when only component router is used
+              Array.prototype.push.apply(stylesheets, $css.getFromRoutes(routeService.routes));
+            }
           }
           // Add all stylesheets from UI Router to array
           if ($injector.has('$state')) {
