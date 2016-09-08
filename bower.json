@@ -1,16 +1,18 @@
 {
   "name": "angular-css",
   "main": "./angular-css.js",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "homepage": "http://castillo-io.github.io/angular-css",
   "authors": [
-    "Alex Castillo <alex@castillo.io>"
+    "Alex Castillo <alex@castillo.io>",
+    "Gleb Sevruk <sevruk.gleb@gmail.com>"
   ],
   "description": "CSS on-demand for AngularJS",
   "keywords": [
     "angularjs",
     "ng-route",
     "ui-router",
+    "component-router",
     "css"
   ],
   "dependencies": {
@@ -18,7 +20,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/castillo-io/angular-css"
+    "url": "git://github.com/Excelion/angular-css"
   },
   "license": "MIT",
   "ignore": [
