@@ -444,7 +444,7 @@
           stylesheet = stylesheets[key] = parse(stylesheet);
           stylesheetLoadPromises.push(
             // Preload via ajax request
-            $http.get(stylesheet.href).error(function (response) {
+            $http.get(stylesheet.href).catch(function (response) {
                 if(DEBUG) $log.error('AngularCSS: Incorrect path for ' + stylesheet.href);
             })
           );
