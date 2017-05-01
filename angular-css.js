@@ -49,7 +49,7 @@
 
       var $css = {};
 
-      var template = '<link ng-repeat="stylesheet in stylesheets | orderBy: \'weight\' track by $index " rel="{{ stylesheet.rel }}" type="{{ stylesheet.type }}" ng-href="{{ stylesheet.href }}" ng-attr-media="{{ stylesheet.media }}">';
+      var template = '<link ng-repeat="stylesheet in stylesheets | track by $index " rel="{{ stylesheet.rel }}" type="{{ stylesheet.type }}" ng-href="{{ stylesheet.href }}" ng-attr-media="{{ stylesheet.media }}">';
 
       // Using correct interpolation symbols.
       template = template
